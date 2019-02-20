@@ -127,10 +127,47 @@ app.put('/api/v1/clients/:id', (req, res) => {
 
   /* ---------- Update code below ----------*/
 
-
-
-  return res.status(200).send(clients);
+  if(status==null){
+    //same swim lane
+      helper(client, priority, res);
+  }else {
+    if(client.status === status){
+      //same swim lane
+      helper(client, priority, res);
+    }else{
+      //diffrent swim lanes
+      let stmt1, stmt2, stmtDel;
+      const clientsTargetStatus = db.prepare('select * from clients where status = ?').all(status);
+      if(priority==null || priority > clientsTargetStatus.length + 1) priority = clientsTargetStatus.length + 1;
+      stmt1 = db.prepare('update clients set priority = priority-1 where priority > ? and status = ?'); //priority
+      stmt2 = db.prepare('update clients set priority = priority+1 where priority >= ? and status = ?');
+      stmtDel = db.prepare('update clients set priority = ?, status = ? where id = ?'); //client.id
+      stmt1.run(client.priority, client.status); //remove from lane
+      stmt2.run(priority, status) //insert to new lane
+      stmtDel.run(priority, status, client.id);
+      return res.status(204).send("Resource Updated successfully");
+    }
+  }
+  return res.status(200).send(client);
 });
-
+function helper(client, priorityWanted, res){
+  if(priorityWanted==null || priorityWanted == client.priority) return res.status(200).send("Nothing to be updated\n");
+  else{
+    let stmt;
+    if(client.priority < priorityWanted){
+      const clientsSameStatus = db.prepare('select * from clients where status = ?').all(client.status);
+      if(clientsSameStatus.length < priorityWanted)
+        priorityWanted = clientsSameStatus.length;
+      stmt = db.prepare('update clients set priority = priority-1 where priority <= ? and priority > ? and status == ?');
+    }else{
+      stmt = db.prepare('update clients set priority = priority+1 where priority >= ? and priority < ? and status == ?');
+    }
+    const stmtSelf = db.prepare('update clients set priority = ? where id = ?');
+    //(update).get() not working, db.run not working
+    stmt.run(priorityWanted, client.priority, client.status);
+    stmtSelf.run(priorityWanted, client.id);
+    return res.status(204).send("Resource updated successfully"); //seems like not executing this line
+  }
+}
 app.listen(3001);
 console.log('app running on port ', 3001);
